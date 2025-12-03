@@ -1,4 +1,4 @@
-FROM alpine:latest
+FROM registry.eniac-tech.com/alpine:latest
 
 RUN apk add --no-cache bash
 

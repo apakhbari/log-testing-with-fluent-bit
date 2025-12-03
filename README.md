@@ -54,7 +54,7 @@ This project provides a simple Docker setup to test Fluent Bit log aggregation. 
 ┌─────────────────┐
 │  GELF Server    │
 │  10.10.21.151   │
-│  Port 31220     │
+│  Port 31221     │
 └─────────────────┘
 ```
 

@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   fluent-bit:
-    image: fluent/fluent-bit:latest
+    image: registry.eniac-tech.com/fluent/fluent-bit:3.2.10
     ports:
       - "24224:24224"
       - "24224:24224/udp"
