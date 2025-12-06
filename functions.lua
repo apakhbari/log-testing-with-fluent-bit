@@ -12,6 +12,10 @@ function add_identifier(tag, timestamp, record)
     -- Create the custom field: "ubuntu_server_01:container_name"
     -- You can change "ubuntu_prod" to whatever your server name is
     record["dividing_name"] = "ubuntu_prod:" .. container_name
+
+    -- Docker's fluentd driver automatically adds these fields to the log record.
+    -- Setting them to 'nil' removes them before the record is sent to GELF.
+    record["container_id"] = nil
     
     -- Ensure the 'log' key exists for GELF (Docker forward usually sends 'log' or 'message')
     if record["log"] == nil and record["message"] ~= nil then
