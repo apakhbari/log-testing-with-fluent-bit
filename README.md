@@ -9,198 +9,165 @@
 |_______||_______||_______||_______||___| |_|  |__||_______|    |__| |__|     |___|    |_______||_______||_______||_|  |__|  |___|         |_______||___|   |___|  
 ```
 
-A Docker-based log generator for testing Fluent Bit configurations with GELF output.
+A Docker-based log generation and forwarding system for testing Fluent Bit configurations with GELF (Graylog Extended Log Format) output.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Architecture](#architecture)
+- [Features](#features)
 - [Prerequisites](#prerequisites)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
-- [Usage](#usage)
-- [Log Format](#log-format)
+  - [Docker Compose](#docker-compose)
+  - [Fluent Bit Configuration](#fluent-bit-configuration)
+  - [Lua Script](#lua-script)
+- [Getting Started](#getting-started)
+- [Log Format Examples](#log-format-examples)
 - [Customization](#customization)
 - [Troubleshooting](#troubleshooting)
+- [Acknowledgment](#acknowledgment)
 
 ## Overview
 
-This project provides a simple Docker setup to test Fluent Bit log aggregation. It includes:
+This project provides a complete testing environment for Fluent Bit's GELF output functionality. It consists of two main components:
 
-- A log generator container that produces structured logs
-- Fluent Bit configured to receive Docker logs via the Fluentd driver
-- Lua script for adding custom identifiers to logs
-- GELF output to send logs to a remote server
+1. **Log Generator**: A bash-based container that generates various log levels (INFO, DEBUG, WARN, ERROR)
+2. **Fluent Bit**: Collects logs via Docker's fluentd logging driver and forwards them to a GELF endpoint
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    A[Log Generator Container] -->|fluentd driver| B[Fluent Bit :24224]
+    B -->|Lua Filter| C[Tag Processing]
+    C -->|Add dividing_name| D[Field Cleanup]
+    D -->|GELF TCP| E[GELF Endpoint<br/>10.10.21.151:31221]
+    
+    style A fill:#e1f5ff
+    style B fill:#fff4e1
+    style C fill:#f0e1ff
+    style D fill:#f0e1ff
+    style E fill:#e1ffe1
 ```
-┌─────────────────┐
-│ Log Generator   │
-│ Container       │
-└────────┬────────┘
-         │ Fluentd Driver
-         │ (port 24224)
-         ▼
-┌─────────────────┐
-│   Fluent Bit    │
-│                 │
-│  ┌───────────┐  │
-│  │ Lua Filter│  │
-│  └───────────┘  │
-└────────┬────────┘
-         │ GELF/TCP
-         ▼
-┌─────────────────┐
-│  GELF Server    │
-│  10.10.21.151   │
-│  Port 31221     │
-└─────────────────┘
-```
+
+## Features
+
+- **Automatic log generation** with multiple severity levels (INFO, DEBUG, WARN, ERROR)
+- **Docker fluentd logging driver** integration
+- **Custom Lua filtering** for tag extraction and field manipulation
+- **GELF TCP output** for compatibility with Graylog, Logstash, and other GELF receivers
+- **Container name tagging** with custom identifier format
+- **Line ending fixes** for cross-platform compatibility (CRLF → LF)
 
 ## Prerequisites
 
 - Docker Engine 20.10+
 - Docker Compose 1.29+
-- Network access to GELF server (10.10.21.151:31220)
+- Network access to your GELF endpoint (default: `10.10.21.151:31221`)
 
 ## Project Structure
 
 ```
 .
-├── Dockerfile              # Log generator image
 ├── docker-compose.yml      # Service orchestration
-├── log-generator.sh        # Log generation script
-├── fluent-bit.conf         # Fluent Bit configuration
-├── functions.lua           # Lua filter for log enrichment
-└── README.md              # This file
+├── Dockerfile             # Log generator image
+├── fluent-bit.conf        # Fluent Bit configuration
+├── functions.lua          # Lua filter for log processing
+└── log-generator.sh       # Bash script for log generation
 ```
 
 ## Configuration
 
+### Docker Compose
+
+The `docker-compose.yml` defines two services:
+
+- **fluent-bit**: Listens on port 24224 (TCP/UDP) for incoming logs
+- **log-generator**: Generates logs and sends them via fluentd driver
+
+Both services run on a shared `logging` bridge network.
+
 ### Fluent Bit Configuration
 
-The `fluent-bit.conf` file includes:
+Key configuration in `fluent-bit.conf`:
 
-- **INPUT**: Forward protocol listener on port 24224
-- **FILTER**: Lua script to add `dividing_name` field
-- **OUTPUT**: GELF output to remote server
+| Section | Purpose |
+|---------|---------|
+| **INPUT** | Forward input listening on `0.0.0.0:24224` |
+| **FILTER** | Lua script (`functions.lua`) processes tags and records |
+| **OUTPUT** | GELF TCP output to `10.10.21.151:31221` |
 
-### Lua Filter
+**Important Settings:**
+- `Gelf_Short_Message_Key`: Set to `log` (matches Docker log field)
+- `Mode`: `tcp` for reliable delivery
 
-The `functions.lua` script:
+### Lua Script
 
-1. Extracts container name from Docker tag (format: `docker.container_name`)
-2. Creates `dividing_name` field with format: `ubuntu_prod:container_name`
-3. Ensures `log` field exists for GELF compatibility
+The `functions.lua` script performs three operations:
 
-### Docker Logging Driver
+1. **Tag Parsing**: Extracts container name from `docker.container_name` format
+2. **Custom Field Addition**: Creates `dividing_name` field with format `ubuntu_prod:container_name`
+3. **Field Cleanup**: Removes `container_id` to reduce GELF payload size
 
-Containers use the Fluentd logging driver with:
+## Getting Started
 
-```yaml
-logging:
-  driver: "fluentd"
-  options:
-    fluentd-address: "localhost:24224"
-    tag: "docker.{{.Name}}"
-```
+1. **Clone or create the project structure** with all five files
 
-## Usage
+2. **Update GELF endpoint** in `fluent-bit.conf`:
+   ```properties
+   [OUTPUT]
+       Host    YOUR_GELF_HOST
+       Port    YOUR_GELF_PORT
+   ```
 
-### Start the Services
+3. **Customize server identifier** in `functions.lua`:
+   ```lua
+   record["dividing_name"] = "YOUR_SERVER_NAME:" .. container_name
+   ```
 
-```bash
-# Build and start all services
-docker-compose up --build
+4. **Start the services**:
+   ```bash
+   docker-compose up --build
+   ```
 
-# Run in detached mode
-docker-compose up --build -d
-```
+5. **Verify logs are flowing**:
+   ```bash
+   docker-compose logs -f fluent-bit
+   ```
 
-### View Logs
+6. **Check your GELF receiver** (Graylog, etc.) for incoming messages
 
-```bash
-# View log generator output
-docker-compose logs -f log-generator
+## Log Format Examples
 
-# View Fluent Bit processing
-docker-compose logs -f fluent-bit
-
-# View all logs
-docker-compose logs -f
-```
-
-### Stop the Services
-
-```bash
-docker-compose down
-```
-
-### Restart Services
-
-```bash
-docker-compose restart
-```
-
-## Log Format
-
-The log generator produces logs in the following format:
+The log generator produces five types of messages in rotation:
 
 ```
-[LEVEL] YYYY-MM-DD HH:MM:SS - Message content
+[INFO] 2024-12-07 10:15:30 - Processing request #1
+[DEBUG] 2024-12-07 10:15:32 - Debug message 2 - Memory usage: 47%
+[WARN] 2024-12-07 10:15:34 - Warning: High latency detected - 1823ms
+[ERROR] 2024-12-07 10:15:36 - Error processing item 4 - Retrying...
+[INFO] 2024-12-07 10:15:38 - Successfully completed operation 5
 ```
 
-**Log Levels:**
-- `[INFO]` - General information messages
-- `[DEBUG]` - Debug information with system metrics
-- `[WARN]` - Warning messages about potential issues
-- `[ERROR]` - Error messages indicating failures
-
-**Example Logs:**
-```
-[INFO] 2025-12-03 10:30:45 - Processing request #1
-[DEBUG] 2025-12-03 10:30:47 - Debug message 2 - Memory usage: 45%
-[WARN] 2025-12-03 10:30:49 - Warning: High latency detected - 1234ms
-[ERROR] 2025-12-03 10:30:51 - Error processing item 4 - Retrying...
-```
+Each log entry includes:
+- Severity level
+- Timestamp
+- Descriptive message
+- Counter/random data
 
 ## Customization
 
-### Change Log Frequency
+### Change Log Generation Frequency
 
-Edit `log-generator.sh` and modify the sleep interval:
-
+Edit `log-generator.sh`:
 ```bash
 sleep 2  # Change to desired interval in seconds
 ```
 
-### Modify Server Identifier
+### Add More Log Levels
 
-Edit `functions.lua` and change the server name:
-
-```lua
-record["dividing_name"] = "your_server_name:" .. container_name
-```
-
-### Update GELF Server
-
-Edit `fluent-bit.conf` OUTPUT section:
-
-```properties
-[OUTPUT]
-    Name                    gelf
-    Match                   *
-    Host                    your.gelf.server.ip
-    Port                    your_port
-    Mode                    tcp
-    Gelf_Short_Message_Key  log
-```
-
-### Add More Log Types
-
-Edit `log-generator.sh` and add new cases in the switch statement:
-
+Extend the case statement in `log-generator.sh`:
 ```bash
 case $((counter % 6)) in
     5)
@@ -209,93 +176,63 @@ case $((counter % 6)) in
 esac
 ```
 
+### Modify GELF Fields
+
+In `functions.lua`, add custom fields:
+```lua
+record["environment"] = "production"
+record["application"] = "my-app"
+record["version"] = "1.0.0"
+```
+
+### Use UDP Instead of TCP
+
+Change in `fluent-bit.conf`:
+```properties
+[OUTPUT]
+    Mode    udp
+```
+
 ## Troubleshooting
 
-### Fluent Bit Not Receiving Logs
+### Logs Not Appearing in GELF Receiver
 
-1. Check if Fluent Bit is running:
-   ```bash
-   docker-compose ps
-   ```
-
-2. Verify port 24224 is accessible:
-   ```bash
-   docker-compose exec fluent-bit netstat -tlnp | grep 24224
-   ```
-
-3. Check Fluent Bit logs for errors:
+1. **Check Fluent Bit logs**:
    ```bash
    docker-compose logs fluent-bit
    ```
 
-### Cannot Connect to GELF Server
-
-1. Test network connectivity:
+2. **Verify network connectivity**:
    ```bash
    docker-compose exec fluent-bit ping 10.10.21.151
    ```
 
-2. Verify GELF port is open:
+3. **Test GELF endpoint**:
    ```bash
-   docker-compose exec fluent-bit nc -zv 10.10.21.151 31220
+   nc -zv 10.10.21.151 31221
    ```
 
-3. Check firewall rules on both client and server
+### "Exec format error" or Script Fails
 
-### Log Generator Not Producing Logs
-
-1. Check container status:
-   ```bash
-   docker-compose ps log-generator
-   ```
-
-2. View container logs directly:
-   ```bash
-   docker logs $(docker-compose ps -q log-generator)
-   ```
-
-3. Verify the script is executable:
-   ```bash
-   docker-compose exec log-generator ls -la /log-generator.sh
-   ```
-
-### Lua Script Errors
-
-1. Check Fluent Bit logs for Lua errors:
-   ```bash
-   docker-compose logs fluent-bit | grep -i lua
-   ```
-
-2. Verify `functions.lua` is mounted correctly:
-   ```bash
-   docker-compose exec fluent-bit ls -la /fluent-bit/etc/functions.lua
-   ```
-
-3. Test the Lua syntax:
-   ```bash
-   docker-compose exec fluent-bit lua -l /fluent-bit/etc/functions.lua
-   ```
-
-### General Debugging
-
-Enable debug logging in `fluent-bit.conf`:
-
-```properties
-[SERVICE]
-    Flush        1
-    Log_Level    debug
-    Parsers_File parsers.conf
-```
-
-Then restart the services:
-
+The Dockerfile includes `dos2unix` to fix line endings. If issues persist:
 ```bash
-docker-compose restart fluent-bit
+dos2unix log-generator.sh
+git add --renormalize .
 ```
 
----
+### Container Exits Immediately
 
-**Note:** Make sure to update the GELF server IP address and port in `fluent-bit.conf` to match your environment before deploying.
+Check log generator output:
+```bash
+docker-compose logs log-generator
+```
+
+### Fluent Bit Connection Refused
+
+Ensure the fluentd address matches your Docker network:
+```yaml
+fluentd-address: "fluent-bit:24224"  # Use service name, not localhost
+```
 
 ## Acknowledgment
 
